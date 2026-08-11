@@ -1,0 +1,93 @@
+%%{init: {'theme':'base', 'themeVariables': {'primaryColor':'#1f2937','primaryTextColor':'#f9fafb','primaryBorderColor':'#6b7280','lineColor':'#9ca3af','fontFamily':'sans-serif'}}}%%
+flowchart TB
+
+    classDef external fill:#334155,stroke:#94a3b8,color:#f8fafc,stroke-width:1px
+    classDef router fill:#1d4ed8,stroke:#93c5fd,color:#ffffff,stroke-width:1px
+    classDef service fill:#0f766e,stroke:#5eead4,color:#ffffff,stroke-width:1px
+    classDef dispatcher fill:#b45309,stroke:#fcd34d,color:#ffffff,stroke-width:1px
+    classDef dep fill:#4c1d95,stroke:#c4b5fd,color:#ffffff,stroke-width:1px
+    classDef data fill:#065f46,stroke:#6ee7b7,color:#ffffff,stroke-width:1px
+    classDef hw fill:#7f1d1d,stroke:#fca5a5,color:#ffffff,stroke-width:1px
+
+    subgraph EXT["External actors"]
+        CatSentinel["cat-sentinel\n(CV/ML microservice)"]:::external
+        Client["HTTP client / browser"]:::external
+        Subscriber["Webhook subscribers"]:::external
+    end
+
+    subgraph APP["jortan-camera-api (FastAPI app) — app/main.py"]
+        direction TB
+
+        subgraph CAMERA["app/camera — root prefix"]
+            CamRouter["router.py\nGET / (viewer)\nGET /video (MJPEG)\nGET /snapshot\nGET /status\nPOST /reset\nPOST /recording/start\nPOST /recording/stop\nGET /recording/status"]:::router
+            CamService["service.py\nRTSPCamera\n(decode buffer, recording writer)"]:::service
+        end
+
+        subgraph PTZ["app/ptz — /ptz"]
+            PtzRouter["router.py\nPOST /ptz/move\nPOST /ptz/nudge\nPOST /ptz/calibrate\nGET /ptz/status"]:::router
+            PtzService["service.py\nPTZController\n(pytapo, open-loop angle tracking)"]:::service
+        end
+
+        subgraph EVENTS["app/events — /events (ingestion, 'in' half)"]
+            EventsRouter["router.py\nPOST /events/trigger\nGET /events\nGET/PUT/DELETE /events/commands/{event_type}"]:::router
+            EventsService["service.py\nEventIngestionService\nEventCommandMapService (in-memory)\nEventLogService (in-memory)"]:::service
+            Dispatcher["camera_command_dispatcher.py\nTapoCameraCommandDispatcher\nLoggingCameraCommandDispatcher"]:::dispatcher
+        end
+
+        subgraph WEBHOOKS["app/webhooks — /webhooks ('out' half)"]
+            WebhooksRouter["router.py\nPOST /webhooks\nGET /webhooks\nDELETE /webhooks/{id}"]:::router
+            WebhooksService["service.py\nWebhookService\n(in-memory subscriptions,\nnotify_all fan-out)"]:::service
+        end
+
+        subgraph RECORDINGS["app/recordings — /recordings (metadata)"]
+            RecRouter["router.py\nGET /recordings\nGET /recordings/{filename}"]:::router
+            RecService["service.py\nRecordingService\n+ reconciliation loop"]:::service
+            RecRepo["repository.py + models.py\nRecordingRepository (SQLAlchemy)"]:::data
+        end
+
+        subgraph CORE["app/core — cross-cutting"]
+            Deps["dependencies.py\nCameraDep · PTZControllerDep\nDbSession · RequireApiKey\nCameraCommandDispatcherDep"]:::dep
+        end
+
+        DB[("recordings.db\n(SQLite/Postgres via SQLAlchemy)")]:::data
+    end
+
+    Cam["Tapo C200\n(RTSP stream)"]:::hw
+    PtzHw["Tapo C200\n(pan/tilt motor, pytapo/HTTP)"]:::hw
+
+    %% External flows
+    CatSentinel -- "GET /video or /snapshot" --> CamRouter
+    CatSentinel -- "POST /events/trigger\n(X-API-Key)" --> EventsRouter
+    Client -- "HTTP: video, ptz, recordings, webhooks" --> CamRouter
+    Client --> PtzRouter
+    Client --> RecRouter
+    Client --> WebhooksRouter
+    WebhooksService -- "POST payload" --> Subscriber
+
+    %% Internal wiring
+    CamRouter --> CamService
+    CamRouter -. "DbSession" .-> Deps
+    CamRouter -- "reuses recording metadata" --> RecService
+
+    PtzRouter --> PtzService
+    PtzRouter -. "PTZControllerDep" .-> Deps
+
+    EventsRouter --> EventsService
+    EventsRouter -. "RequireApiKey" .-> Deps
+    EventsService -- "dispatch(command, params)" --> Dispatcher
+    Dispatcher -- "ptz_move / ptz_nudge / ptz_calibrate" --> PtzService
+    EventsService -- "webhook_fanout" --> WebhooksService
+    EventsRouter -.->|"get_webhook_service()"| WebhooksRouter
+
+    RecRouter --> RecService
+    RecService --> RecRepo
+    RecRepo --> DB
+    CamRouter -- "start/stop recording\n(shared decode buffer)" --> CamService
+
+    Deps -- "app.state.camera" --> CamService
+    Deps -- "app.state.ptz_controller" --> PtzService
+    Deps -- "app.state.command_dispatcher" --> Dispatcher
+
+    %% Hardware
+    CamService -- "RTSP" --> Cam
+    PtzService -- "pytapo (KLAP/legacy)" --> PtzHw

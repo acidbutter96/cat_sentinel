@@ -69,6 +69,15 @@ class FrameNotAvailableError(Exception):
         self.detail = detail
 
 
+class PTZDisabledError(Exception):
+    """Raised by the PTZ controller dependency when PTZ_ENABLED=false --
+    see app.main lifespan and app/core/dependencies.py.
+    """
+
+    def __init__(self, detail: str = "PTZ control is disabled (PTZ_ENABLED=false)"):
+        self.detail = detail
+
+
 # --- Handlers ----------------------------------------------------------------
 
 
@@ -96,6 +105,13 @@ async def handle_conflict(request: Request, exc: ConflictError) -> JSONResponse:
 async def handle_frame_not_available(
     request: Request, exc: FrameNotAvailableError
 ) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content={"detail": exc.detail}
+    )
+
+
+@exception_handler(PTZDisabledError)
+async def handle_ptz_disabled(request: Request, exc: PTZDisabledError) -> JSONResponse:
     return JSONResponse(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content={"detail": exc.detail}
     )

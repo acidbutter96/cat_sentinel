@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     debug: bool = False
     log_level: str = "INFO"
+    log_dir: str = "logs"
 
     # Persistence -- SQLite for local dev, Postgres+asyncpg in production.
     database_url: str = "sqlite+aiosqlite:///./cat_sentinel.db"

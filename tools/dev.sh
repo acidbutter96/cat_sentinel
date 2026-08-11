@@ -25,7 +25,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo "==> Starting Postgres (docker compose)"
-(cd "$ROOT_DIR/docker" && docker compose up -d)
+(cd "$ROOT_DIR" && docker compose up -d postgres)
 
 echo "==> Starting camera on :$CAMERA_PORT"
 (cd "$ROOT_DIR/camera" && poetry run uvicorn app.main:app --reload --port "$CAMERA_PORT") &

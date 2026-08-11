@@ -1,0 +1,79 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cat-sentinel-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cat_sentinel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cat_sentinel}
+      POSTGRES_DB: postgres
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cat_sentinel}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  camera:
+    build: ./camera
+    container_name: cat-sentinel-camera
+    restart: unless-stopped
+    env_file:
+      - ./camera/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cat_sentinel}:${POSTGRES_PASSWORD:-cat_sentinel}@postgres:5432/camera
+      HTTP_PORT: 8000
+    ports:
+      - "${CAMERA_PORT:-9000}:8000"
+    volumes:
+      - ./camera/app:/app/app
+      - ./camera/recordings:/app/recordings
+      - ./camera/logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  cat-sentinel:
+    build: ./cat-sentinel
+    container_name: cat-sentinel-detector
+    restart: unless-stopped
+    env_file:
+      - ./cat-sentinel/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cat_sentinel}:${POSTGRES_PASSWORD:-cat_sentinel}@postgres:5432/cat_sentinel
+      CAMERA_STREAM_URL: http://camera:8000/stream.mjpg
+    ports:
+      - "${CAT_SENTINEL_PORT:-9001}:8000"
+    volumes:
+      - ./cat-sentinel/app:/app/app
+      - ./cat-sentinel/alembic:/app/alembic
+      - ./cat-sentinel/logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      camera:
+        condition: service_started
+
+  hub:
+    build: ./hub
+    container_name: cat-sentinel-hub
+    restart: unless-stopped
+    environment:
+      CAT_SENTINEL_BASE_URL: http://cat-sentinel:8000
+      CAMERA_BASE_URL: http://camera:8000
+      HUB_PORT: 8000
+    ports:
+      - "${HUB_PORT:-9002}:8000"
+    volumes:
+      - ./hub/app:/app/app
+      - ./hub/logs:/app/logs
+    depends_on:
+      - cat-sentinel
+      - camera
+
+volumes:
+  postgres_data:

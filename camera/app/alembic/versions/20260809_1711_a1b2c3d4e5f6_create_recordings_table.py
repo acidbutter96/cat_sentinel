@@ -23,7 +23,6 @@ recording_status = sa.Enum(
 
 
 def upgrade() -> None:
-    recording_status.create(op.get_bind(), checkfirst=True)
     op.create_table(
         "recordings",
         sa.Column("id", sa.Uuid(), nullable=False),
@@ -43,4 +42,3 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index(op.f("ix_recordings_filename"), table_name="recordings")
     op.drop_table("recordings")
-    recording_status.drop(op.get_bind(), checkfirst=True)

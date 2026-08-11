@@ -15,7 +15,10 @@ from app.camera.router import router as camera_router
 from app.camera.service import RTSPCamera
 from app.core.exceptions import register_exception_handlers
 from app.db.session import AsyncSessionLocal
-from app.events.camera_command_dispatcher import TapoCameraCommandDispatcher
+from app.events.camera_command_dispatcher import (
+    LoggingCameraCommandDispatcher,
+    TapoCameraCommandDispatcher,
+)
 from app.events.router import router as events_router
 from app.ptz.router import router as ptz_router
 from app.ptz.service import PTZController
@@ -26,7 +29,7 @@ from app.settings.logging_config import setup_logging
 from app.settings.middleware import register_middleware
 from app.webhooks.router import router as webhooks_router
 
-setup_logging(settings.log_level)
+setup_logging(settings.log_level, settings.log_dir)
 
 
 @contextlib.asynccontextmanager
@@ -38,15 +41,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # PTZController's constructor makes a blocking probe request to the
     # camera (pytapo's KLAP-vs-legacy protocol detection) -- run it off the
     # event loop so an unreachable camera doesn't stall app startup.
-    ptz_controller = await asyncio.to_thread(
-        PTZController,
-        settings.camera_host,
-        settings.tapo_control_user,
-        settings.tapo_control_password,
-        settings.ptz_units_per_degree,
-    )
-    app.state.ptz_controller = ptz_controller
-    app.state.command_dispatcher = TapoCameraCommandDispatcher(ptz_controller)
+    # PTZ_ENABLED=false skips this connection entirely (e.g. tapo_control_user
+    # credentials aren't set up yet, or the camera is offline) -- PTZ routes
+    # then 503 via get_ptz_controller and ptz_* event commands just log
+    # instead of executing (see app/core/dependencies.py and
+    # app/events/camera_command_dispatcher.py).
+    if settings.ptz_enabled:
+        ptz_controller = await asyncio.to_thread(
+            PTZController,
+            settings.camera_host,
+            settings.tapo_control_user,
+            settings.tapo_control_password,
+            settings.ptz_units_per_degree,
+        )
+        app.state.ptz_controller = ptz_controller
+        app.state.command_dispatcher = TapoCameraCommandDispatcher(ptz_controller)
+    else:
+        app.state.ptz_controller = None
+        app.state.command_dispatcher = LoggingCameraCommandDispatcher()
 
     reconciliation_task = asyncio.create_task(
         run_reconciliation_loop(settings.recording_scan_interval_seconds, AsyncSessionLocal)
@@ -78,5 +90,5 @@ app.include_router(ptz_router)
 
 
 @app.get("/health", tags=["meta"], summary="Liveness check")
-async def health() -> dict[str, str]:
-    return {"status": "ok"}
+async def health() -> dict[str, str | bool]:
+    return {"status": "ok", "ptz_enabled": settings.ptz_enabled}

@@ -12,7 +12,7 @@ from typing import Annotated
 from fastapi import Depends, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import UnauthorizedError
+from app.core.exceptions import PTZDisabledError, UnauthorizedError
 from app.db.session import get_db_session
 from app.events.camera_command_dispatcher import (
     CameraCommandDispatcher,
@@ -64,8 +64,15 @@ def get_ptz_controller(request: Request):
     """The single PTZController instance lives on app.state, created once at
     startup (see app.main lifespan) alongside the RTSPCamera -- same
     one-connection-per-process rationale.
+
+    app.state.ptz_controller is None when PTZ_ENABLED=false (lifespan skips
+    the Tapo connection entirely) -- raise instead of handing routers a None
+    they'd blow up on with an AttributeError.
     """
-    return request.app.state.ptz_controller
+    controller = request.app.state.ptz_controller
+    if controller is None:
+        raise PTZDisabledError
+    return controller
 
 
 PTZControllerDep = Annotated[object, Depends(get_ptz_controller)]

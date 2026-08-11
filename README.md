@@ -10,7 +10,7 @@ cat_sentinel/
 ├── cat-sentinel/     # cat detection/tracking via YOLOv8 (port 9001 in dev)
 ├── hub/              # central aggregator API for the frontend (port 9002 in dev)
 ├── hub_frontend/      # Next.js dashboard, consumes hub (port 3000)
-├── docker/            # docker-compose for Postgres (two databases: cat_sentinel, camera)
+├── docker-compose.yml  # Postgres (two databases) + camera/cat-sentinel/hub containers
 ├── docs/               # ADRs
 └── tools/dev.sh         # brings up Postgres + all four services locally
 ```
@@ -126,12 +126,36 @@ sequenceDiagram
 ## Local dev
 
 ```bash
-cp docker/.env.example docker/.env
+cp .env.example .env
 ./tools/dev.sh
 ```
 
 This brings up Postgres (two databases: `cat_sentinel`, `camera`) and all four services.
 See each service's own README for its `.env` and `poetry install` / `npm install` steps.
+
+## Docker
+
+`camera`, `cat-sentinel`, and `hub` each have a `Dockerfile` and are wired into
+[`docker-compose.yml`](docker-compose.yml) alongside Postgres. `hub_frontend` is not
+containerized -- run it locally with `npm run dev`.
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+docker compose run --rm cat-sentinel alembic upgrade head
+docker compose run --rm camera alembic upgrade head
+```
+
+Notes:
+- Each service's own `.env` (`camera/.env`, `cat-sentinel/.env`) is loaded via `env_file`;
+  `DATABASE_URL` and cross-service URLs are overridden in `docker-compose.yml` to use the
+  Postgres/service container names instead of `localhost`.
+- Migrations aren't run automatically on container start -- run them once per fresh
+  Postgres volume as shown above.
+- `camera`'s startup blocks on a PTZ auth probe against the real Tapo camera
+  (`CAMERA_HOST`/`TAPO_CONTROL_USER`/`TAPO_CONTROL_PASSWORD` in `camera/.env`) -- it will
+  crash-loop under `docker compose` if that camera isn't reachable from the container's
+  network, same as running it locally.
 
 ## Docs
 

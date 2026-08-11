@@ -13,7 +13,7 @@ from app.settings.middleware import register_middleware
 from app.stream.router import router as stream_router
 from app.trackers.router import router as trackers_router
 
-setup_logging(settings.log_level)
+setup_logging(settings.log_level, settings.log_dir)
 
 
 @asynccontextmanager

@@ -17,7 +17,7 @@ from app.streaming.broadcaster import AnnotatedFrameBroadcaster
 from app.streaming.router import router as streaming_router
 from app.zones.router import router as zones_router
 
-setup_logging(settings.log_level)
+setup_logging(settings.log_level, settings.log_dir)
 
 logger = logging.getLogger(__name__)
 

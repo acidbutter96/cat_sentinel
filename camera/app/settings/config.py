@@ -34,6 +34,15 @@ class Settings(BaseSettings):
         )
 
     # --- PTZ control (pytapo) ---
+    # Kill switch for the pytapo/Tapo connection: PTZController's constructor
+    # makes a blocking auth probe to the camera at startup, which raises and
+    # fails app startup if tapo_control_user/password are wrong or the
+    # camera is unreachable. Set PTZ_ENABLED=false to skip that connection
+    # entirely -- the app starts up with PTZ routes returning 503 and the
+    # event dispatcher logging ptz_* commands instead of executing them
+    # (see app.main lifespan, app/core/dependencies.py, and
+    # app/events/camera_command_dispatcher.py).
+    ptz_enabled: bool = True
     # Separate credential set from the RTSP ones above: this is the
     # TP-Link cloud account email/password (or, on some firmware, the same
     # local "Camera Account") that pytapo authenticates with to drive the
@@ -62,6 +71,7 @@ class Settings(BaseSettings):
 
     # --- Logging ---
     log_level: str = "INFO"
+    log_dir: str = "logs"
 
 
 settings = Settings()

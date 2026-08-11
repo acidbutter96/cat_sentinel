@@ -1,0 +1,86 @@
+flowchart TB
+    subgraph external["External actors"]
+        cam["Tapo C200<br/>RTSP :554 + PTZ motor"]
+        user["Browser<br/>(dashboard user)"]
+    end
+
+    subgraph camerasvc["camera service :9000 (hardware bridge, no CV/ML — ADR 0002)"]
+        camrouter["routers<br/>camera / events / webhooks / recordings"]
+        ptzrouter["ptz router<br/>POST /ptz/move, /nudge, /calibrate, GET /status"]
+        ptzctl["PTZController<br/>open-loop pan/tilt estimate via pytapo<br/>(asyncio.to_thread)"]
+        rtsp["RTSPCamera<br/>background decode thread"]
+        dispatcher["CameraCommandDispatcher<br/>event_type → command<br/>(cat_detected→light_on, ptz_move/nudge/calibrate)"]
+        camdb[("Postgres<br/>camera db<br/>recordings")]
+    end
+
+    subgraph catsvc["cat-sentinel service :9001 (CV/ML, tracking)"]
+        catrouter["routers<br/>zones / cats / detections / alerts / activities / stream"]
+        pipeline["DetectionPipeline<br/>runs every 0.2s"]
+        vision["YoloCatDetector + CentroidTracker<br/>+ AutoTrackController (planned, ADR 0003)"]
+        broadcaster["AnnotatedFrameBroadcaster<br/>latest-frame pub/sub"]
+        catdb[("Postgres<br/>cat_sentinel db<br/>cats/zones/detections/alerts/activities")]
+    end
+
+    subgraph hubsvc["hub service :9002 (aggregator, read-through, no persistence)"]
+        hubtrackers["trackers router<br/>GET /trackers"]
+        hubstream["stream router<br/>GET /stream/annotated (proxy)"]
+    end
+
+    subgraph fe["hub_frontend :3000 (Next.js)"]
+        feapi["/api/trackers, /api/stream"]
+        felive["/live page"]
+    end
+
+    subgraph infra["local dev infra"]
+        compose["docker-compose<br/>Postgres (two DBs via init-databases.sh)"]
+        devsh["tools/dev.sh<br/>brings up Postgres + all 4 services"]
+    end
+
+    cam -->|RTSP| rtsp
+    cam <-->|pytapo motorMove/Step/Calibrate| ptzctl
+
+    rtsp --> camrouter
+    ptzrouter --> ptzctl
+    camrouter -->|snapshot/video MJPEG| vision
+    pipeline --> vision
+    vision -->|"POST /events/trigger (zone alerts)"| camrouter
+    camrouter --> dispatcher
+    dispatcher -->|ptz_move/nudge/calibrate| ptzctl
+    vision -.->|"throttled POST /ptz/move<br/>(planned auto-track, bypasses events layer — ADR 0003)"| ptzrouter
+
+    pipeline --> catrouter
+    pipeline --> broadcaster
+    catrouter --> catdb
+    camrouter --> camdb
+
+    hubtrackers -->|"GET /cats, /detections (read-through, no cache)"| catrouter
+    hubstream -->|"GET /stream/annotated (proxy)"| catrouter
+
+    feapi --> hubtrackers
+    feapi --> hubstream
+    felive --> feapi
+    user --> felive
+
+    compose --> camdb
+    compose --> catdb
+    devsh -.-> compose
+    devsh -.-> camerasvc
+    devsh -.-> catsvc
+    devsh -.-> hubsvc
+    devsh -.-> fe
+
+    classDef ext fill:#94a3b8,stroke:#475569,color:#0f172a
+    classDef cam fill:#38bdf8,stroke:#0284c7,color:#0f172a
+    classDef cat fill:#4ade80,stroke:#16a34a,color:#0f172a
+    classDef hub fill:#facc15,stroke:#ca8a04,color:#0f172a
+    classDef front fill:#c084fc,stroke:#9333ea,color:#0f172a
+    classDef store fill:#f97316,stroke:#c2410c,color:#0f172a
+    classDef infra fill:#e2e8f0,stroke:#64748b,color:#0f172a
+
+    class cam,user ext
+    class camrouter,ptzrouter,ptzctl,rtsp,dispatcher cam
+    class catrouter,pipeline,vision,broadcaster cat
+    class hubtrackers,hubstream hub
+    class feapi,felive front
+    class camdb,catdb store
+    class compose,devsh infra

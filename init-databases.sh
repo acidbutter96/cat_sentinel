@@ -5,7 +5,7 @@ set -euo pipefail
 # The postgres image only creates POSTGRES_DB by default; this service
 # needs two separate databases (one per backend that owns its own schema).
 for db in cat_sentinel camera; do
-  psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" <<-EOSQL
+  psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres <<-EOSQL
     SELECT 'CREATE DATABASE $db OWNER $POSTGRES_USER'
     WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '$db')\gexec
 EOSQL

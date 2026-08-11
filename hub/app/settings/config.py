@@ -26,6 +26,7 @@ class Settings(BaseSettings):
 
     debug: bool = False
     log_level: str = "INFO"
+    log_dir: str = "logs"
 
 
 settings = Settings()
