@@ -45,7 +45,7 @@ services:
       - ./cat-sentinel/.env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cat_sentinel}:${POSTGRES_PASSWORD:-cat_sentinel}@postgres:5432/cat_sentinel
-      CAMERA_STREAM_URL: http://camera:8000/stream.mjpg
+      CAMERA_STREAM_URL: http://camera:8000/video
     ports:
       - "${CAT_SENTINEL_PORT:-9001}:8000"
     volumes:

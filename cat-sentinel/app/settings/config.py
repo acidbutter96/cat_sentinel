@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./cat_sentinel.db"
 
     # Upstream camera / streaming
-    camera_stream_url: str = "http://localhost:9000/stream.mjpg"
+    camera_stream_url: str = "http://localhost:9000/video"
     camera_id: str = "default"
 
     # Alerts
