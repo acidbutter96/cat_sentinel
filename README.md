@@ -2,15 +2,15 @@
 
 A system that watches a room via camera and alerts when a **cat** enters a
 "danger zone" (e.g. the table next to a pet's terrarium). Four independent services,
-each its own Poetry/npm project, orchestrated locally by [`tools/dev.sh`](tools/dev.sh).
+each its own Poetry/yarn project, orchestrated locally by [`tools/dev.sh`](tools/dev.sh).
 
 ```
 cat_sentinel/
 ├── camera/          # RTSP -> HTTP bridge + PTZ control (port 9000 in dev)
 ├── cat-sentinel/     # cat detection/tracking via YOLOv8 (port 9001 in dev)
 ├── hub/              # central aggregator API for the frontend (port 9002 in dev)
-├── hub_frontend/      # Next.js dashboard, consumes hub (port 3000)
-├── docker-compose.yml  # Postgres (two databases) + camera/cat-sentinel/hub containers
+├── hub_frontend/      # Next.js dashboard, consumes hub (port 3000 in dev, 9003 in docker)
+├── docker-compose.yml  # Postgres (two databases) + camera/cat-sentinel/hub/frontend containers
 ├── docs/               # ADRs
 └── tools/dev.sh         # brings up Postgres + all four services locally
 ```
@@ -131,13 +131,14 @@ cp .env.example .env
 ```
 
 This brings up Postgres (two databases: `cat_sentinel`, `camera`) and all four services.
-See each service's own README for its `.env` and `poetry install` / `npm install` steps.
+See each service's own README for its `.env` and `poetry install` / `yarn install` steps.
 
 ## Docker
 
-`camera`, `cat-sentinel`, and `hub` each have a `Dockerfile` and are wired into
-[`docker-compose.yml`](docker-compose.yml) alongside Postgres. `hub_frontend` is not
-containerized -- run it locally with `npm run dev`.
+All four services -- `camera`, `cat-sentinel`, `hub`, and `hub_frontend` -- have a
+`Dockerfile` and are wired into [`docker-compose.yml`](docker-compose.yml) alongside
+Postgres. `hub_frontend`'s container runs `yarn dev` with the source mounted as a volume,
+so it hot-reloads like the local flow.
 
 ```bash
 cp .env.example .env
@@ -156,6 +157,8 @@ Notes:
   (`CAMERA_HOST`/`TAPO_CONTROL_USER`/`TAPO_CONTROL_PASSWORD` in `camera/.env`) -- it will
   crash-loop under `docker compose` if that camera isn't reachable from the container's
   network, same as running it locally.
+- `hub_frontend` is published on `9003` by default (override with `FRONTEND_PORT`), not
+  `3000` -- avoids clashing with a locally-run `yarn dev` on the same machine.
 
 ## Docs
 

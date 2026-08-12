@@ -75,5 +75,20 @@ services:
       - cat-sentinel
       - camera
 
+  frontend:
+    build: ./hub_frontend
+    container_name: cat-sentinel-frontend
+    restart: unless-stopped
+    environment:
+      HUB_BASE_URL: http://hub:8000
+    ports:
+      - "${FRONTEND_PORT:-9003}:3000"
+    volumes:
+      - ./hub_frontend:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - hub
+
 volumes:
   postgres_data:

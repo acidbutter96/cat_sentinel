@@ -40,7 +40,7 @@ echo "==> Starting hub on :$HUB_PORT"
 PIDS+=($!)
 
 echo "==> Starting hub_frontend on :$FRONTEND_PORT"
-(cd "$ROOT_DIR/hub_frontend" && HUB_BASE_URL="http://localhost:$HUB_PORT" npm run dev -- --port "$FRONTEND_PORT") &
+(cd "$ROOT_DIR/hub_frontend" && HUB_BASE_URL="http://localhost:$HUB_PORT" yarn dev --port "$FRONTEND_PORT") &
 PIDS+=($!)
 
 echo "All services starting. Ctrl+C to stop everything."
