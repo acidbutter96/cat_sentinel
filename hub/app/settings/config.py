@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     # (e.g. GET /cats/, GET /detections/). Deliberately NOT used for the
     # MJPEG stream proxy -- see core/dependencies.py.
     upstream_control_timeout: float = 10.0
+    tracker_stale_after_seconds: float = 8.0
 
     # hub's own bind port. Default 8000; some dev schemes use 9002.
     hub_port: int = 8000

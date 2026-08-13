@@ -18,6 +18,7 @@ class AlertRepository:
             cat_id=payload.cat_id,
             zone_id=payload.zone_id,
             camera_id=payload.camera_id,
+            kind=payload.kind,
             status=payload.status,
             error_message=payload.error_message,
         )

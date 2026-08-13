@@ -2,7 +2,7 @@ import { LiveVideoFeed } from "@/components/features/live-video-feed";
 import { TrackerList } from "@/components/features/tracker-list";
 
 export const metadata = {
-  title: "Live Feed | Cat Sentinel",
+  title: "Live Feed | Cat Sentinell",
 };
 
 export default function LivePage() {
@@ -11,7 +11,7 @@ export default function LivePage() {
       <header>
         <h1 className="text-2xl font-bold text-zinc-100">Live Feed</h1>
         <p className="text-sm text-zinc-500">
-          Annotated camera stream and currently tracked cats.
+          Direct camera stream and currently tracked cats with their latest snapshots.
         </p>
       </header>
 

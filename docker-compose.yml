@@ -41,6 +41,7 @@ services:
     build: ./cat-sentinel
     container_name: cat-sentinel-detector
     restart: unless-stopped
+    command: ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]
     env_file:
       - ./cat-sentinel/.env
     environment:
@@ -51,6 +52,8 @@ services:
     volumes:
       - ./cat-sentinel/app:/app/app
       - ./cat-sentinel/alembic:/app/alembic
+      - ./cat-sentinel/snapshots:/app/snapshots
+      - ./cat-sentinel/registered_cat_images:/app/registered_cat_images
       - ./cat-sentinel/logs:/app/logs
     depends_on:
       postgres:
@@ -81,6 +84,7 @@ services:
     restart: unless-stopped
     environment:
       HUB_BASE_URL: http://hub:8000
+      NEXT_ALLOWED_DEV_ORIGINS: ${NEXT_ALLOWED_DEV_ORIGINS:-192.168.15.9}
     ports:
       - "${FRONTEND_PORT:-9003}:3000"
     volumes:

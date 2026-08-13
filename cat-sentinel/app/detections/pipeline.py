@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
+from datetime import UTC, datetime
 
 from app.activities.models import ActivityKind
 from app.activities.repository import ActivityRepository
 from app.activities.schemas import ActivityCreate
 from app.activities.service import ActivityService
+from app.alerts.models import AlertKind
 from app.alerts.repository import AlertRepository
 from app.alerts.service import AlertCooldownTracker, AlertService
 from app.cats.repository import CatRepository
@@ -15,46 +18,53 @@ from app.db.session import async_session_factory
 from app.detections.repository import DetectionRepository
 from app.detections.schemas import Centroid, DetectionCreate
 from app.detections.service import DetectionService
+from app.registered_cats.repository import RegisteredCatRepository
+from app.registered_cats.service import RegisteredCatService
 from app.settings.config import settings
-from app.streaming.broadcaster import AnnotatedFrameBroadcaster
 from app.streaming.client import RatSentinelStreamClient
 from app.streaming.frame_source import FrameSource
-from app.vision.annotator import FrameAnnotator
 from app.vision.detector import YoloCatDetector
+from app.vision.reid import compute_embedding
+from app.vision.snapshots import save_cat_snapshot, save_entry_frame
 from app.vision.tracker import CentroidTracker
 from app.zones.repository import ZoneRepository
 from app.zones.service import ZoneService, point_in_polygon
 
 logger = logging.getLogger(__name__)
 
+# Sentinel "zone" key for AlertCooldownTracker so camera-entry alerts (which
+# have no real zone_id) get their own cooldown bucket instead of colliding
+# with a real zone UUID.
+_CAMERA_ENTRY_COOLDOWN_KEY = uuid.UUID(int=0)
+
 
 class DetectionPipeline:
     """Pulls frames from the upstream camera, detects and tracks cats,
-    persists observations, fires danger-zone alerts, and publishes
-    annotated frames for the MJPEG stream endpoint.
+    persists observations, and fires danger-zone alerts.
 
-    Runs as a background task started (but not owned/blocked-on) by
-    FastAPI's lifespan startup -- see app.main. It is NOT the source of
-    `app.state.broadcaster`, which must exist before the pipeline starts (or
-    even before it's able to start) so routes never see a missing
-    broadcaster.
+    Runs as a background task started (but not owned/blocked-on) by FastAPI's
+    lifespan startup -- see app.main.
     """
 
     def __init__(
         self,
-        broadcaster: AnnotatedFrameBroadcaster,
         camera_id: str | None = None,
         stream_url: str | None = None,
     ):
-        self.broadcaster = broadcaster
         self.camera_id = camera_id or settings.camera_id
         self.stream_client = RatSentinelStreamClient(stream_url or settings.camera_stream_url)
         self.frame_source = FrameSource(self.stream_client)
         self.detector = YoloCatDetector()
         self.tracker = CentroidTracker()
-        self.annotator = FrameAnnotator()
         self.cooldown_tracker = AlertCooldownTracker()
+        self.entry_cooldown_tracker = AlertCooldownTracker(settings.alert_entry_cooldown_seconds)
         self._stop_event = asyncio.Event()
+        # Per-process cache of tracker track_id -> resolved persistent Cat.id
+        # for this pipeline run. Lets repeat observations of the same track
+        # skip the appearance-search in CatService.identify_or_create (see
+        # CatService.touch) and lets us detect "this track_id is new" to
+        # decide when to fire a camera-entry alert -- see _process_frame.
+        self._track_to_cat: dict[int, uuid.UUID] = {}
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -92,13 +102,50 @@ class DetectionPipeline:
                 detection_service = DetectionService(DetectionRepository(session))
                 alert_service = AlertService(AlertRepository(session))
                 activity_service = ActivityService(ActivityRepository(session))
+                registered_cat_service = RegisteredCatService(RegisteredCatRepository(session))
 
                 zones = await zone_service.list_active_for_camera(self.camera_id)
 
-                boxes_to_draw: list[tuple[tuple[float, float, float, float], str, bool]] = []
-
                 for track_id, tracked_obj in tracked.items():
-                    cat = await cat_service.get_or_create_for_track(self.camera_id, track_id)
+                    embedding = compute_embedding(frame, tracked_obj.bbox)
+
+                    # A track_id this pipeline process hasn't resolved yet --
+                    # either a genuinely new cat, or a known cat re-entering
+                    # frame after leaving (the tracker aged the old track
+                    # out) or a process restart (CentroidTracker's counter
+                    # restarted from 1). Either way, from the camera's point
+                    # of view this IS a fresh entry into its field of view.
+                    is_new_track = track_id not in self._track_to_cat
+                    if is_new_track:
+                        registered_cat = await registered_cat_service.find_best_match(embedding)
+                        cat = await cat_service.identify_or_create(
+                            self.camera_id,
+                            track_id,
+                            embedding,
+                            registered_cat_id=registered_cat.id if registered_cat else None,
+                            registered_cat_name=registered_cat.name if registered_cat else None,
+                        )
+                        self._track_to_cat[track_id] = cat.id
+                    else:
+                        cat = await cat_service.touch(self._track_to_cat[track_id], embedding)
+
+                    if is_new_track and self.entry_cooldown_tracker.should_fire(
+                        cat.id, _CAMERA_ENTRY_COOLDOWN_KEY
+                    ):
+                        await alert_service.fire(
+                            cat.id,
+                            self.camera_id,
+                            kind=AlertKind.CAMERA_ENTRY,
+                        )
+                        self.entry_cooldown_tracker.mark_fired(cat.id, _CAMERA_ENTRY_COOLDOWN_KEY)
+                        await activity_service.record(
+                            ActivityCreate(
+                                camera_id=self.camera_id,
+                                cat_id=cat.id,
+                                kind=ActivityKind.ENTERED_FRAME,
+                                message=f"{cat.label} entered the camera's field of view",
+                            )
+                        )
 
                     matched_zone_id = None
                     in_danger_zone = False
@@ -113,15 +160,47 @@ class DetectionPipeline:
                         (d.confidence for d in raw_detections if d.bbox == tracked_obj.bbox), 0.0
                     )
 
+                    snapshot_path = None
+                    frame_path = None
+                    captured_at = datetime.now(UTC)
+                    if is_new_track:
+                        try:
+                            snapshot_path = await asyncio.to_thread(
+                                save_cat_snapshot,
+                                frame,
+                                tracked_obj.bbox,
+                                output_dir=settings.snapshot_dir,
+                                camera_id=self.camera_id,
+                                cat_id=cat.id,
+                                captured_at=captured_at,
+                            )
+                            frame_path = await asyncio.to_thread(
+                                save_entry_frame,
+                                frame,
+                                output_dir=settings.snapshot_dir,
+                                camera_id=self.camera_id,
+                                cat_id=cat.id,
+                                captured_at=captured_at,
+                            )
+                        except Exception:
+                            logger.exception(
+                                "failed to save selection images for cat_id=%s",
+                                cat.id,
+                            )
+
                     await detection_service.create(
                         DetectionCreate(
                             cat_id=cat.id,
                             camera_id=self.camera_id,
+                            track_id=track_id,
                             zone_id=matched_zone_id,
                             bbox=list(tracked_obj.bbox),
                             centroid=Centroid(x=tracked_obj.centroid[0], y=tracked_obj.centroid[1]),
                             in_danger_zone=in_danger_zone,
                             confidence=confidence,
+                            snapshot_path=snapshot_path,
+                            frame_path=frame_path,
+                            timestamp=captured_at,
                         )
                     )
                     await activity_service.record(
@@ -134,29 +213,37 @@ class DetectionPipeline:
                         )
                     )
 
-                    if in_danger_zone and matched_zone_id is not None:
-                        if self.cooldown_tracker.should_fire(cat.id, matched_zone_id):
-                            alert = await alert_service.fire(
-                                cat.id, matched_zone_id, self.camera_id
+                    if (
+                        in_danger_zone
+                        and matched_zone_id is not None
+                        and self.cooldown_tracker.should_fire(cat.id, matched_zone_id)
+                    ):
+                        alert = await alert_service.fire(
+                            cat.id,
+                            self.camera_id,
+                            kind=AlertKind.DANGER_ZONE,
+                            zone_id=matched_zone_id,
+                        )
+                        self.cooldown_tracker.mark_fired(cat.id, matched_zone_id)
+                        await activity_service.record(
+                            ActivityCreate(
+                                camera_id=self.camera_id,
+                                cat_id=cat.id,
+                                kind=ActivityKind.ALERT,
+                                message=f"Alert fired for {cat.label} entering danger zone "
+                                f"(status={alert.status.value})",
                             )
-                            self.cooldown_tracker.mark_fired(cat.id, matched_zone_id)
-                            await activity_service.record(
-                                ActivityCreate(
-                                    camera_id=self.camera_id,
-                                    cat_id=cat.id,
-                                    kind=ActivityKind.ALERT,
-                                    message=f"Alert fired for {cat.label} entering danger zone "
-                                    f"(status={alert.status.value})",
-                                )
-                            )
+                        )
 
-                    boxes_to_draw.append(
-                        (tracked_obj.bbox, f"{cat.label} #{track_id}", in_danger_zone)
-                    )
+                # Drop cache entries for tracks CentroidTracker has aged out
+                # so the cache doesn't grow unboundedly over a long-running
+                # process, and so a future reuse of that same track_id number
+                # goes through identify_or_create's appearance search again
+                # rather than trusting a stale mapping.
+                self._track_to_cat = {
+                    tid: cat_id for tid, cat_id in self._track_to_cat.items() if tid in tracked
+                }
 
-            annotated_frame = self.annotator.annotate(frame, boxes_to_draw)
-            jpeg_bytes = self.annotator.encode_jpeg(annotated_frame)
-            await self.broadcaster.publish(jpeg_bytes)
         except Exception:
             # Deliberate broad catch -- see the run_forever() docstring.
             logger.exception("failed to process a frame, continuing to next frame")

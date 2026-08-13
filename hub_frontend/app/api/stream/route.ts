@@ -1,6 +1,6 @@
 import { HUB_BASE_URL } from "@/lib/config";
 
-// Same-origin proxy for GET {HUB_BASE_URL}/stream/annotated.
+// Same-origin proxy for GET {HUB_BASE_URL}/stream.
 //
 // This is a live, infinite MJPEG multipart stream, so:
 //  - it must never be cached or statically optimized by Next.js
@@ -12,13 +12,13 @@ export async function GET() {
   let upstream: Response;
 
   try {
-    upstream = await fetch(`${HUB_BASE_URL}/stream/annotated`, {
+    upstream = await fetch(`${HUB_BASE_URL}/stream`, {
       cache: "no-store",
     });
   } catch (error) {
     return new Response(
       JSON.stringify({
-        error: "Failed to reach hub stream service",
+        error: "Failed to reach hub camera stream",
         detail: error instanceof Error ? error.message : String(error),
       }),
       {
@@ -31,7 +31,7 @@ export async function GET() {
   if (!upstream.ok || !upstream.body) {
     return new Response(
       JSON.stringify({
-        error: "Hub stream service returned an error",
+        error: "Hub camera stream returned an error",
         status: upstream.status,
       }),
       {

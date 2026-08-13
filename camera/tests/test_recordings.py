@@ -2,8 +2,33 @@ from __future__ import annotations
 
 from datetime import UTC
 
+import av
+from PIL import Image
+
+from app.camera.service import RTSPCamera
+from app.recordings.models import Recording
 from app.recordings.repository import RecordingRepository
 from app.recordings.service import RecordingService
+
+
+def test_recording_status_uses_database_enum_values():
+    status_type = Recording.__table__.c.status.type
+    assert status_type.enums == ["recording", "completed", "failed", "missing"]
+
+
+def test_recording_is_finalized_as_a_playable_mp4(tmp_path):
+    camera = RTSPCamera("rtsp://unused")
+    camera._last_frame_size = (64, 48)
+    path = tmp_path / "recording.mp4"
+    camera.start_recording(path.name, tmp_path)
+    camera._process_frame(av.VideoFrame.from_image(Image.new("RGB", (64, 48), "red")))
+    camera._process_frame(av.VideoFrame.from_image(Image.new("RGB", (64, 48), "blue")))
+    camera.stop_recording()
+
+    with av.open(str(path)) as container:
+        assert container.streams.video[0].codec_context.name == "mpeg4"
+        decoded = next(container.decode(video=0))
+        assert (decoded.width, decoded.height) == (64, 48)
 
 
 async def test_recordings_list_empty(client):

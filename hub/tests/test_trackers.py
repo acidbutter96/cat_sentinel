@@ -5,42 +5,55 @@ import pytest
 
 from app.core.dependencies import get_cat_sentinel_control_client
 from app.main import app
-from app.trackers.service import parse_captured_at
+from app.trackers.service import bounding_box_from_bbox, parse_captured_at
 
+# Shape matches cat-sentinel's real GET /detected-cats/ and GET /detections/
+# actually return (app.cats.schemas.CatRead / app.detections.schemas.DetectionRead)
+# -- label/bbox/timestamp, NOT name/bounding_box/captured_at. Mocking the
+# wrong shape here is exactly how the historical field-mismatch bug (see
+# app/trackers/service.py's module docstring) went unnoticed.
 CATS = [
-    {"id": "cat-1", "name": "Whiskers"},
-    {"id": "cat-2", "name": "Mittens"},
+    {"id": "cat-1", "label": "Whiskers"},
+    {"id": "cat-2", "label": "Mittens"},
 ]
 
 
 def _detections(now: datetime) -> list[dict]:
     older = (now - timedelta(minutes=5)).isoformat()
-    newer = (now - timedelta(seconds=10)).isoformat()
+    newer = (now - timedelta(seconds=1)).isoformat()
     return [
         {
             "id": "det-1",
             "cat_id": "cat-1",
-            "bounding_box": {"x": 1.0, "y": 2.0, "width": 10.0, "height": 20.0},
-            "captured_at": older,
+            "bbox": [1.0, 2.0, 11.0, 22.0],
+            "timestamp": older,
+            "in_danger_zone": False,
+            "snapshot_path": "snapshots/default/cat-1/old.jpg",
+            "frame_path": "snapshots/default/cat-1/old_frame.jpg",
+            "track_id": 31,
         },
         {
             "id": "det-2",
             "cat_id": "cat-1",
-            "bounding_box": {"x": 5.0, "y": 6.0, "width": 10.0, "height": 20.0},
-            "captured_at": newer,
+            "bbox": [5.0, 6.0, 15.0, 26.0],
+            "timestamp": newer,
+            "in_danger_zone": True,
+            "confidence": 0.91,
+            "track_id": 31,
         },
         {
             "id": "det-3",
             "cat_id": "cat-2",
-            "bounding_box": {"x": 0.0, "y": 0.0, "width": 5.0, "height": 5.0},
-            "captured_at": newer,
+            "bbox": [0.0, 0.0, 5.0, 5.0],
+            "timestamp": newer,
+            "in_danger_zone": False,
         },
     ]
 
 
 def _handler_factory(now: datetime):
     async def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/cats/":
+        if request.url.path == "/detected-cats/":
             return httpx.Response(200, json=CATS)
         if request.url.path == "/detections/":
             return httpx.Response(200, json=_detections(now))
@@ -73,9 +86,29 @@ async def test_list_trackers_returns_latest_bbox_per_cat(client, mock_control_cl
     assert cat_1["cat_name"] == "Whiskers"
     # the newer detection's bbox should win
     assert cat_1["bounding_box"] == {"x": 5.0, "y": 6.0, "width": 10.0, "height": 20.0}
+    assert cat_1["in_danger_zone"] is True
+    assert cat_1["snapshot_path"] == "snapshots/default/cat-1/old.jpg"
+    assert cat_1["entry_frame_path"] == "snapshots/default/cat-1/old_frame.jpg"
+    assert cat_1["entry_track_id"] == 31
+    assert cat_1["entry_bounding_box"] == {"x": 1.0, "y": 2.0, "width": 10.0, "height": 20.0}
+    assert cat_1["confidence"] == 0.91
 
     cat_2 = next(t for t in body if t["cat_id"] == "cat-2")
     assert cat_2["cat_name"] == "Mittens"
+    assert cat_2["in_danger_zone"] is False
+
+
+async def test_list_trackers_excludes_stale_detections(client, mock_control_client):
+    response = await client.get("/trackers")
+    assert all(tracker["age_seconds"] <= 8.0 for tracker in response.json())
+
+
+def test_bounding_box_from_bbox_converts_corner_pair_to_xywh():
+    box = bounding_box_from_bbox([5.0, 6.0, 15.0, 26.0])
+    assert box.x == 5.0
+    assert box.y == 6.0
+    assert box.width == 10.0
+    assert box.height == 20.0
 
 
 @pytest.fixture

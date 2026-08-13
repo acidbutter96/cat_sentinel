@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 // Default to the same-origin proxy so the browser never needs to know the
 // hub's real address. Can be overridden client-side to point straight at a
@@ -18,6 +18,7 @@ function buildSrc(base: string, cacheBust: number) {
 export function LiveVideoFeed() {
   const [status, setStatus] = useState<FeedStatus>("loading");
   const [cacheBust, setCacheBust] = useState(0);
+  const imageRef = useRef<HTMLImageElement>(null);
 
   const handleError = useCallback(() => {
     setStatus("error");
@@ -34,14 +35,34 @@ export function LiveVideoFeed() {
 
   const src = buildSrc(STREAM_URL, cacheBust);
 
+  useEffect(() => {
+    const hasFirstFrame = () => (imageRef.current?.naturalWidth ?? 0) > 0;
+    if (hasFirstFrame()) {
+      setStatus("ok");
+      return;
+    }
+
+    // Browsers do not consistently emit img.load for an infinite MJPEG
+    // response. naturalWidth becomes available as soon as the first JPEG is
+    // decoded, which is the signal the dashboard needs to remove its overlay.
+    const interval = window.setInterval(() => {
+      if (hasFirstFrame()) {
+        setStatus("ok");
+        window.clearInterval(interval);
+      }
+    }, 100);
+    return () => window.clearInterval(interval);
+  }, [cacheBust]);
+
   return (
     <div className="relative flex aspect-video w-full items-center justify-center overflow-hidden rounded-lg border border-zinc-800 bg-black">
       {status !== "error" && (
         // eslint-disable-next-line @next/next/no-img-element -- MJPEG multipart stream, not compatible with next/image
         <img
+          ref={imageRef}
           key={cacheBust}
           src={src}
-          alt="Live annotated camera feed"
+          alt="Live camera feed"
           onError={handleError}
           onLoad={handleLoad}
           className="h-full w-full object-contain"

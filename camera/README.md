@@ -45,6 +45,9 @@ poetry run uvicorn app.main:app --reload
 Open `http://localhost:8000/` for the live viewer, `http://localhost:8000/docs` for the API
 (including `POST /ptz/move`, `POST /ptz/nudge`, `POST /ptz/calibrate`, `GET /ptz/status`).
 
+Set `LIVE_JPEG_QUALITY` and `MJPEG_FRAME_INTERVAL_SECONDS` to control only the
+live MJPEG feed. RTSP recordings retain their source quality.
+
 ## Testing
 
 ```bash

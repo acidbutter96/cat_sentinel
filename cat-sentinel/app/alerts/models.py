@@ -14,14 +14,29 @@ class AlertStatus(str, enum.Enum):
     FAILED = "failed"
 
 
+class AlertKind(str, enum.Enum):
+    DANGER_ZONE = "danger_zone"  # a cat entered a defined danger zone
+    CAMERA_ENTRY = "camera_entry"  # a cat entered the camera's field of view
+
+
 class Alert(Base):
-    """A fired danger-zone alert and its outbound-webhook delivery status."""
+    """A fired alert and its outbound-webhook delivery status.
+
+    `zone_id` is only set for AlertKind.DANGER_ZONE alerts -- CAMERA_ENTRY
+    alerts (a cat simply appeared on camera, see
+    app.detections.pipeline.DetectionPipeline) have no associated zone.
+    """
 
     __tablename__ = "alerts"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    cat_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("cats.id"), index=True)
-    zone_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("zones.id"), index=True)
+    cat_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("detected_cats.id"), index=True)
+    zone_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("zones.id"), nullable=True, index=True
+    )
+    kind: Mapped[AlertKind] = mapped_column(
+        Enum(AlertKind, native_enum=False), default=AlertKind.DANGER_ZONE, index=True
+    )
     camera_id: Mapped[str] = mapped_column(index=True)
     status: Mapped[AlertStatus] = mapped_column(
         Enum(AlertStatus, native_enum=False), default=AlertStatus.PENDING, index=True

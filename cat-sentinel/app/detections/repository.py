@@ -17,12 +17,17 @@ class DetectionRepository:
         detection = Detection(
             cat_id=payload.cat_id,
             camera_id=payload.camera_id,
+            track_id=payload.track_id,
             zone_id=payload.zone_id,
             bbox=payload.bbox,
             centroid=payload.centroid.model_dump(),
             in_danger_zone=payload.in_danger_zone,
             confidence=payload.confidence,
+            snapshot_path=payload.snapshot_path,
+            frame_path=payload.frame_path,
         )
+        if payload.timestamp is not None:
+            detection.timestamp = payload.timestamp
         self.session.add(detection)
         await self.session.commit()
         await self.session.refresh(detection)

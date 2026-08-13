@@ -40,6 +40,16 @@ class RecordingService:
     async def start(self, filename: str) -> Recording:
         return await self.repository.create(filename)
 
+    async def fail(self, filename: str) -> Recording | None:
+        recording = await self.repository.get_by_filename(filename)
+        if recording is None:
+            return None
+        return await self.repository.mark_status(recording, RecordingStatus.FAILED)
+
+    async def fail_open_recordings(self) -> None:
+        for recording in await self.repository.list_by_status(RecordingStatus.RECORDING):
+            await self.repository.mark_status(recording, RecordingStatus.FAILED)
+
     async def stop(self, filename: str) -> Recording:
         recording = await self.repository.get_by_filename(filename)
         if recording is None:

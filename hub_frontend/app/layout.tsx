@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { NavBar } from "@/components/layout/nav-bar";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -13,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Cat Sentinel Hub",
-  description: "Live cat tracking dashboard for the Cat Sentinel hub service",
+  title: "Cat Sentinell",
+  description: "Watches your cats, names them, and alerts you the moment one enters a danger zone.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -24,6 +25,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col bg-zinc-950 text-zinc-100">
+        <NavBar />
         {children}
       </body>
     </html>

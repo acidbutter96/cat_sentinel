@@ -29,6 +29,7 @@ from app.core.dependencies import CameraDep, DbSession
 from app.core.exceptions import FrameNotAvailableError, RecordingAlreadyInProgressError
 from app.recordings.repository import RecordingRepository
 from app.recordings.service import RecordingService, generate_filename, recordings_dir
+from app.settings.config import settings
 
 router = APIRouter(tags=["camera"])
 
@@ -36,7 +37,6 @@ _templates_dir = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(_templates_dir))
 
 MJPEG_BOUNDARY = "frame"
-STREAM_POLL_INTERVAL_SECONDS = 0.05
 
 
 @router.get("/", response_class=HTMLResponse, summary="Live viewer page")
@@ -59,7 +59,7 @@ async def _mjpeg_generator(camera: RTSPCamera):
                 b"Content-Type: image/jpeg\r\n"
                 b"Content-Length: " + str(len(frame)).encode() + b"\r\n\r\n" + frame + b"\r\n"
             )
-        await asyncio.sleep(STREAM_POLL_INTERVAL_SECONDS)
+        await asyncio.sleep(settings.mjpeg_frame_interval_seconds)
 
 
 @router.get("/video", summary="MJPEG live video stream")
@@ -115,12 +115,15 @@ async def start_recording(
         raise RecordingAlreadyInProgressError()
 
     filename = generate_filename()
+    recording = await recording_service.start(filename)
     try:
         camera.start_recording(filename, recordings_dir())
     except RuntimeError as exc:
+        await recording_service.fail(recording.filename)
         raise RecordingAlreadyInProgressError(str(exc)) from exc
-
-    await recording_service.start(filename)
+    except Exception:
+        await recording_service.fail(recording.filename)
+        raise
     return RecordingStartResponse(filename=filename, started=True)
 
 

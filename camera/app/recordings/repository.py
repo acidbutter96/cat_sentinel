@@ -40,6 +40,12 @@ class RecordingRepository:
         result = await self.session.execute(select(Recording).order_by(Recording.started_at.desc()))
         return list(result.scalars().all())
 
+    async def list_by_status(self, status: RecordingStatus) -> list[Recording]:
+        result = await self.session.execute(
+            select(Recording).where(Recording.status == status).order_by(Recording.started_at)
+        )
+        return list(result.scalars().all())
+
     async def mark_completed(
         self,
         recording: Recording,

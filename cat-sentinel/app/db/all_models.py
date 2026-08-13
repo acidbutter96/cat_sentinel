@@ -9,4 +9,5 @@ from app.activities import models as activities_models  # noqa: F401
 from app.alerts import models as alerts_models  # noqa: F401
 from app.cats import models as cats_models  # noqa: F401
 from app.detections import models as detections_models  # noqa: F401
+from app.registered_cats import models as registered_cats_models  # noqa: F401
 from app.zones import models as zones_models  # noqa: F401

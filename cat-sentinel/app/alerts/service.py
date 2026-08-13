@@ -5,7 +5,7 @@ import uuid
 
 import httpx
 
-from app.alerts.models import Alert, AlertStatus
+from app.alerts.models import Alert, AlertKind, AlertStatus
 from app.alerts.repository import AlertRepository
 from app.alerts.schemas import AlertCreate
 from app.core.decorators import log_errors
@@ -45,20 +45,34 @@ class AlertService:
     async def list(self, limit: int = 50, offset: int = 0) -> list[Alert]:
         return await self.repository.list(limit=limit, offset=offset)
 
-    async def fire(self, cat_id: uuid.UUID, zone_id: uuid.UUID, camera_id: str) -> Alert:
+    async def fire(
+        self,
+        cat_id: uuid.UUID,
+        camera_id: str,
+        *,
+        kind: AlertKind = AlertKind.DANGER_ZONE,
+        zone_id: uuid.UUID | None = None,
+    ) -> Alert:
         """Records a pending alert, POSTs the webhook, and updates the alert's
-        delivery status based on the outcome.
+        delivery status based on the outcome. `zone_id` only applies to
+        AlertKind.DANGER_ZONE.
         """
         alert = await self.repository.create(
             AlertCreate(
-                cat_id=cat_id, zone_id=zone_id, camera_id=camera_id, status=AlertStatus.PENDING
+                cat_id=cat_id,
+                zone_id=zone_id,
+                camera_id=camera_id,
+                kind=kind,
+                status=AlertStatus.PENDING,
             )
         )
         payload = {
             "cat_id": str(cat_id),
-            "zone_id": str(zone_id),
+            "zone_id": str(zone_id) if zone_id is not None else None,
             "camera_id": camera_id,
-            "event": "cat_entered_danger_zone",
+            "event": "cat_entered_danger_zone"
+            if kind == AlertKind.DANGER_ZONE
+            else "cat_entered_frame",
         }
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:

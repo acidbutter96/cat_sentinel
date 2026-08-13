@@ -11,6 +11,7 @@ from app.db.base import Base
 class ActivityKind(str, enum.Enum):
     DETECTION = "detection"
     ALERT = "alert"
+    ENTERED_FRAME = "entered_frame"
 
 
 class Activity(Base):

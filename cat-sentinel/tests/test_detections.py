@@ -14,6 +14,7 @@ async def _make_detection(db_session, camera_id: str, track_id: int, in_danger_z
         DetectionCreate(
             cat_id=cat.id,
             camera_id=camera_id,
+            track_id=track_id,
             zone_id=None,
             bbox=[0.0, 0.0, 10.0, 10.0],
             centroid=Centroid(x=5.0, y=5.0),
@@ -40,6 +41,7 @@ async def test_list_detections_filter_by_cat_id(client, db_session):
     assert len(results) == 1
     assert results[0]["cat_id"] == str(cat_a.id)
     assert cat_a.id != cat_b.id
+    assert results[0]["track_id"] == 1
 
 
 async def test_list_detections_filter_by_in_danger_zone(client, db_session):

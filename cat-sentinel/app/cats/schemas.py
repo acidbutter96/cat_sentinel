@@ -24,5 +24,6 @@ class CatRead(BaseModel):
     track_id: int
     label: str
     is_active: bool
+    registered_cat_id: uuid.UUID | None
     created_at: datetime
     updated_at: datetime

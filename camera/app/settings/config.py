@@ -57,6 +57,11 @@ class Settings(BaseSettings):
 
     # --- HTTP server ---
     http_port: int = 8000
+    # The MJPEG feed is consumed by the detector and hub. Lower JPEG quality
+    # reduces LAN bandwidth and detector decode cost without touching source
+    # RTSP recording quality.
+    live_jpeg_quality: int = 60
+    mjpeg_frame_interval_seconds: float = 0.1
 
     # --- Events / webhooks ---
     events_api_key: str | None = None
@@ -65,6 +70,11 @@ class Settings(BaseSettings):
     # --- Recordings ---
     recording_scan_interval_seconds: int = 300
     recordings_dir: str = "./recordings"
+    # Continuous recording, auto-started at app boot (and auto-restarted if
+    # it ever stops unexpectedly) and split into fixed-duration chunk files
+    # instead of one ever-growing video -- see app/recordings/chunking.py.
+    recording_auto_start: bool = True
+    recording_chunk_seconds: int = 3600
 
     # --- Database (Postgres for recordings) ---
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/jortan_camera"

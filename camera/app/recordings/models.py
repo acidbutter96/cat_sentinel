@@ -29,5 +29,10 @@ class Recording(Base):
     duration_seconds: Mapped[float | None] = mapped_column(nullable=True)
     file_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[RecordingStatus] = mapped_column(
-        Enum(RecordingStatus, name="recording_status"), default=RecordingStatus.RECORDING
+        Enum(
+            RecordingStatus,
+            name="recording_status",
+            values_callable=lambda statuses: [status.value for status in statuses],
+        ),
+        default=RecordingStatus.RECORDING,
     )

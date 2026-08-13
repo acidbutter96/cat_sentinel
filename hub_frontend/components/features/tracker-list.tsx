@@ -11,6 +11,10 @@ import {
 
 const POLL_INTERVAL_MS = 2000;
 
+function snapshotUrl(path: string): string {
+  return `/api/snapshots?path=${encodeURIComponent(path)}`;
+}
+
 type FetchState = "loading" | "ok" | "error";
 
 export function TrackerList() {
@@ -95,19 +99,46 @@ export function TrackerList() {
                   : "border-zinc-800 bg-zinc-900"
               }`}
             >
-              <div className="flex items-center justify-between">
-                <span className="font-medium text-zinc-100">
-                  {trackerLabel(tracker)}
-                </span>
-                {danger !== undefined && (
-                  <span
-                    className={`text-xs font-semibold uppercase tracking-wide ${
-                      danger ? "text-red-400" : "text-emerald-400"
-                    }`}
-                  >
-                    {danger ? "danger zone" : "safe"}
-                  </span>
+              <div className="flex gap-3">
+                {tracker.snapshot_path && (
+                  // eslint-disable-next-line @next/next/no-img-element -- snapshot is a runtime API image
+                  <img
+                    src={snapshotUrl(tracker.snapshot_path)}
+                    alt={`${trackerLabel(tracker)} snapshot`}
+                    className="h-16 w-20 rounded object-cover"
+                  />
                 )}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate font-medium text-zinc-100">
+                      {trackerLabel(tracker)}
+                    </span>
+                    {danger !== undefined && (
+                      <span
+                        className={`shrink-0 text-xs font-semibold uppercase tracking-wide ${
+                          danger ? "text-red-400" : "text-emerald-400"
+                        }`}
+                      >
+                        {danger ? "danger zone" : "safe"}
+                      </span>
+                    )}
+                  </div>
+                  {typeof tracker.age_seconds === "number" && (
+                    <div className="mt-1 text-xs text-zinc-500">
+                      seen {tracker.age_seconds.toFixed(1)}s ago
+                    </div>
+                  )}
+                  {typeof tracker.entry_track_id === "number" && (
+                    <div className="mt-1 text-xs text-zinc-500">
+                      entry tracker #{tracker.entry_track_id}
+                    </div>
+                  )}
+                  {typeof tracker.entry_captured_at === "string" && (
+                    <div className="text-xs text-zinc-500">
+                      entry {new Date(tracker.entry_captured_at).toLocaleString()}
+                    </div>
+                  )}
+                </div>
               </div>
               {box && (
                 <div className="mt-1 font-mono text-xs text-zinc-500">{box}</div>

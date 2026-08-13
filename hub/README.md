@@ -8,8 +8,9 @@ its own — it is a thin proxy/aggregator.
 
 - `GET /trackers` — latest bounding box per actively-tracked cat, read through to upstream
   `cat-sentinel`'s `/cats/` and `/detections/` endpoints.
-- `GET /stream/annotated` — proxies the MJPEG annotated stream from upstream `cat-sentinel`'s
-  `/stream/annotated`, byte-for-byte, as a streaming response.
+- `GET /stream` — proxies the MJPEG stream directly from the camera API's
+  `/video`, byte-for-byte. Cat-sentinel is used only for metrics and tracking data.
+- `GET /snapshots?path=...` — proxies a stored cat snapshot for the live tracker cards.
 
 ## Running
 

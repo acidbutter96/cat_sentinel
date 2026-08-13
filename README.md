@@ -35,13 +35,13 @@ flowchart TB
     end
 
     subgraph catsvc["cat-sentinel service :9001"]
-        catrouter["routers<br/>zones / cats / detections / alerts / activities / stream"]
+        catrouter["routers<br/>zones / cats / detections / alerts / activities"]
         catcore["core<br/>decorators, exceptions, DI"]
         pipeline["DetectionPipeline<br/>YOLOv8 + centroid tracker"]
     end
 
     subgraph hubsvc["hub service :9002"]
-        hubrouter["routers<br/>trackers / stream proxy"]
+        hubrouter["routers<br/>trackers / camera stream proxy"]
     end
 
     subgraph fe["hub_frontend :3000"]
@@ -60,7 +60,8 @@ flowchart TB
     camrouter --> pg
     catrouter --> pg
 
-    hubrouter -->|GET /trackers, /stream/annotated| catrouter
+    hubrouter -->|GET /trackers| catrouter
+    hubrouter -->|GET /video| camrouter
     feroutes --> hubrouter
     fepage --> feroutes
     user --> fepage
@@ -143,7 +144,6 @@ so it hot-reloads like the local flow.
 ```bash
 cp .env.example .env
 docker compose up -d --build
-docker compose run --rm cat-sentinel alembic upgrade head
 docker compose run --rm camera alembic upgrade head
 ```
 
@@ -151,8 +151,8 @@ Notes:
 - Each service's own `.env` (`camera/.env`, `cat-sentinel/.env`) is loaded via `env_file`;
   `DATABASE_URL` and cross-service URLs are overridden in `docker-compose.yml` to use the
   Postgres/service container names instead of `localhost`.
-- Migrations aren't run automatically on container start -- run them once per fresh
-  Postgres volume as shown above.
+- `cat-sentinel` applies pending Alembic migrations automatically before starting;
+  `camera` still requires the manual migration command shown above.
 - `camera`'s startup blocks on a PTZ auth probe against the real Tapo camera
   (`CAMERA_HOST`/`TAPO_CONTROL_USER`/`TAPO_CONTROL_PASSWORD` in `camera/.env`) -- it will
   crash-loop under `docker compose` if that camera isn't reachable from the container's

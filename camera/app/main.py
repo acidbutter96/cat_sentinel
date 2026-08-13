@@ -22,6 +22,7 @@ from app.events.camera_command_dispatcher import (
 from app.events.router import router as events_router
 from app.ptz.router import router as ptz_router
 from app.ptz.service import PTZController
+from app.recordings.chunking import run_recording_chunk_loop
 from app.recordings.router import router as recordings_router
 from app.recordings.service import run_reconciliation_loop
 from app.settings.config import settings
@@ -63,13 +64,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     reconciliation_task = asyncio.create_task(
         run_reconciliation_loop(settings.recording_scan_interval_seconds, AsyncSessionLocal)
     )
+    chunk_task = asyncio.create_task(
+        run_recording_chunk_loop(
+            camera,
+            AsyncSessionLocal,
+            settings.recording_chunk_seconds,
+            settings.recording_auto_start,
+        )
+    )
 
     try:
         yield
     finally:
         reconciliation_task.cancel()
+        chunk_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await reconciliation_task
+        with contextlib.suppress(asyncio.CancelledError):
+            await chunk_task
         camera.stop()
 
 

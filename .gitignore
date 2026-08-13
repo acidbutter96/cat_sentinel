@@ -5,3 +5,9 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .env
+.DS_Store
+logs/
+cat-sentinel/snapshots/*
+!cat-sentinel/snapshots/.gitkeep
+cat-sentinel/registered_cat_images/*
+!cat-sentinel/registered_cat_images/.gitkeep

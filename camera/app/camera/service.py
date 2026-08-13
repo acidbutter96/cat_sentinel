@@ -19,9 +19,12 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
+from fractions import Fraction
 from pathlib import Path
 
 import av
+
+from app.settings.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +74,7 @@ class RTSPCamera:
         self._record_started_monotonic: float | None = None
         self._out_container: av.container.OutputContainer | None = None
         self._out_stream = None
+        self._record_frame_index = 0
 
     # --- lifecycle -----------------------------------------------------
 
@@ -150,6 +154,7 @@ class RTSPCamera:
             self._out_stream = out_stream
             self._record_filename = filename
             self._record_started_monotonic = time.monotonic()
+            self._record_frame_index = 0
             self._recording = True
         logger.info("recording started: %s", filename)
 
@@ -158,17 +163,15 @@ class RTSPCamera:
             if not self._recording:
                 raise RuntimeError("No recording is currently in progress")
             filename = self._record_filename
-            elapsed = time.monotonic() - (self._record_started_monotonic or time.monotonic())
-            self._flush_and_close_output_locked()
+            started_at = self._record_started_monotonic
+            elapsed = time.monotonic() - (started_at or time.monotonic())
+            self._finalize_recording_locked_safely()
             snapshot = RecordingStatusSnapshot(
                 is_recording=False,
                 filename=filename,
-                started_at=self._record_started_monotonic,
+                started_at=started_at,
                 elapsed_seconds=elapsed,
             )
-            self._recording = False
-            self._record_filename = None
-            self._record_started_monotonic = None
         logger.info("recording stopped: %s", filename)
         return snapshot
 
@@ -199,11 +202,21 @@ class RTSPCamera:
             self._out_container = None
             self._out_stream = None
 
+    def _finalize_recording_locked_safely(self) -> None:
+        """Flush and close the output; caller must hold self._lock."""
+        if self._out_container is not None:
+            try:
+                self._flush_and_close_output_locked()
+            except Exception:  # noqa: BLE001 -- close must still reset state
+                logger.exception("failed to finalize recording %s", self._record_filename)
+        self._recording = False
+        self._record_filename = None
+        self._record_started_monotonic = None
+        self._record_frame_index = 0
+
     def _close_recording_locked_safe(self) -> None:
         with self._lock:
-            if self._recording:
-                self._flush_and_close_output_locked()
-                self._recording = False
+            self._finalize_recording_locked_safely()
 
     # --- background decode loop -----------------------------------------
 
@@ -242,7 +255,7 @@ class RTSPCamera:
         # JPEG-encode the decoded frame for the live-view / snapshot buffer.
         image = frame.to_image()  # PIL.Image, RGB
         buf = io.BytesIO()
-        image.save(buf, format="JPEG", quality=80)
+        image.save(buf, format="JPEG", quality=settings.live_jpeg_quality)
         jpeg_bytes = buf.getvalue()
 
         with self._lock:
@@ -257,7 +270,11 @@ class RTSPCamera:
                         height=self._out_stream.height,
                         format="yuv420p",
                     )
+                    out_frame.pts = self._record_frame_index
+                    out_frame.time_base = Fraction(1, 15)
+                    self._record_frame_index += 1
                     for packet in self._out_stream.encode(out_frame):
                         self._out_container.mux(packet)
                 except Exception:  # noqa: BLE001 -- a single bad frame must not kill the decode loop
                     logger.exception("failed to write frame to recording %s", self._record_filename)
+                    self._finalize_recording_locked_safely()
